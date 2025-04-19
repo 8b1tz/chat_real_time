@@ -1,0 +1,12 @@
+from typing import Optional
+
+from pydantic import BaseModel
+
+
+class RoomCreate(BaseModel):
+    name: str
+    password: Optional[str] = None
+
+class RoomOut(BaseModel):
+    name: str
+    private: bool

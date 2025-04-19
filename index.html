@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>Chat em Tempo Real</title>
+  <style>
+    #messages { border:1px solid #ccc; height:300px; overflow:auto; padding:5px; }
+  </style>
+</head>
+<body>
+  <h1>Chat Real-Time</h1>
+
+  <div id="login">
+    <label>Seu nome: <input id="username" placeholder="ex: Hanna" /></label>
+    <label>Sala: <input id="room" placeholder="ex: geral" /></label>
+    <button id="connect">Entrar na sala</button>
+  </div>
+
+  <div id="chat" style="display:none;">
+    <div id="messages"></div>
+    <input id="msgInput" placeholder="Digite sua mensagem…" />
+    <button id="sendBtn">Enviar</button>
+  </div>
+
+  <script>
+    let ws;
+    document.getElementById('connect').onclick = () => {
+      const username = document.getElementById('username').value.trim();
+      const room     = document.getElementById('room').value.trim();
+      if (!username || !room) return alert('Preencha nome e sala.');
+
+      ws = new WebSocket(
+        `ws://127.0.0.1:8000/ws/${encodeURIComponent(room)}?username=${encodeURIComponent(username)}`
+      );
+
+      ws.onopen = () => {
+        document.getElementById('login').style.display = 'none';
+        document.getElementById('chat').style.display  = 'block';
+      };
+
+      ws.onmessage = e => {
+        const msg = JSON.parse(e.data);
+        const el  = document.createElement('div');
+        el.textContent = `[${new Date(msg.timestamp).toLocaleTimeString()}] ${msg.username}: ${msg.message}`;
+        document.getElementById('messages').appendChild(el);
+        document.getElementById('messages').scrollTop = 1e9;
+      };
+
+      ws.onclose = () => alert('Você foi desconectado.');
+    };
+
+    document.getElementById('sendBtn').onclick = () => {
+      const input = document.getElementById('msgInput');
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(input.value);
+        input.value = '';
+      }
+    };
+  </script>
+</body>
+</html>
