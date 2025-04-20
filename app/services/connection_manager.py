@@ -5,9 +5,7 @@ from fastapi import WebSocket
 
 class ConnectionManager:
     def __init__(self):
-        # sala → { username: WebSocket }
         self.active_connections: Dict[str, Dict[str, WebSocket]] = {}
-        # sala privada → senha
         self.rooms_passwords: Dict[str, str] = {}
 
     def create_room(self, name: str, password: Optional[str] = None):
@@ -17,9 +15,22 @@ class ConnectionManager:
         if password:
             self.rooms_passwords[name] = password
 
+    def delete_room(self, name: str):
+        if name not in self.active_connections:
+            raise ValueError("Sala não existe")
+        # opcional: só permitir se não há usuários dentro
+        if self.active_connections[name]:
+            raise ValueError("Não é possível deletar uma sala com usuários ativos")
+        del self.active_connections[name]
+        self.rooms_passwords.pop(name, None)
+
     def list_rooms(self):
         return [
-            {"name": room, "private": room in self.rooms_passwords}
+            {
+                "name": room,
+                "private": room in self.rooms_passwords,
+                "users": len(self.active_connections.get(room, {}))
+            }
             for room in self.active_connections
         ]
 
@@ -42,6 +53,5 @@ class ConnectionManager:
         for conn in list(self.active_connections.get(room, {}).values()):
             await conn.send_json(message)
 
-
-# instância única compartilhada
+# instância única
 manager = ConnectionManager()

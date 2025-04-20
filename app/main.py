@@ -25,4 +25,5 @@ app.mount(
 # Página principal
 @app.get("/", response_class=HTMLResponse)
 async def get_index():
-    return HTMLResponse(pathlib.Path("index.html").read_text(encoding="utf-8"))
+    html = pathlib.Path("index.html").read_text(encoding="utf-8")
+    return HTMLResponse(html)

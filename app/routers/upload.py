@@ -11,8 +11,9 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @router.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
-    # só permitir tipos desejados
-    if not any(file.content_type.startswith(prefix) for prefix in ("audio/", "video/", "application/pdf")):
+    # tipos permitidos: imagem, áudio, vídeo, PDF
+    allowed = ("image/", "audio/", "video/", "application/pdf")
+    if not any(file.content_type.startswith(prefix) for prefix in allowed):
         raise HTTPException(400, "Tipo de arquivo não suportado")
     ext = os.path.splitext(file.filename)[1]
     file_id = f"{uuid.uuid4()}{ext}"

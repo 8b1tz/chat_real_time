@@ -10,3 +10,8 @@ class RoomCreate(BaseModel):
 class RoomOut(BaseModel):
     name: str
     private: bool
+
+class RoomInfo(BaseModel):
+    name: str
+    private: bool
+    users: int

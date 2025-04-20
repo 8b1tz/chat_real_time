@@ -4,58 +4,165 @@
   <meta charset="utf-8" />
   <title>Chat em Tempo Real</title>
   <style>
+    #roomsList { margin-bottom: 1em; }
+    #roomsList ul { list-style:none; padding:0; }
+    #roomsList li { padding:0.5em; border:1px solid #ccc; margin:0.2em 0; cursor:pointer; }
+    #roomsList li span { margin-left:1em; color: #666; }
     #messages { border:1px solid #ccc; height:300px; overflow:auto; padding:5px; }
+    img.preview { max-width:200px; cursor:pointer; margin:5px 0; }
+    .message { margin: 5px 0; }
+    /* Modal */
+    #modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);align-items:center;justify-content:center;z-index:1000;}
+    #modalContent{position:relative;background:#fff;padding:10px;max-width:90%;max-height:90%;overflow:auto;}
+    #closeModal{position:absolute;top:5px;right:5px;background:red;color:#fff;border:none;padding:5px;cursor:pointer;}
+    #modalContent img,audio,video,embed{max-width:100%;max-height:100%;}
   </style>
 </head>
 <body>
   <h1>Chat Real-Time</h1>
 
+  <div id="roomsList">
+    <h2>Salas Disponíveis</h2>
+    <ul id="roomsUl"></ul>
+    <button id="refreshRooms">Atualizar salas</button>
+    <input id="newRoomName" placeholder="Criar nova sala" />
+    <input id="newRoomPassword" placeholder="Senha (opcional)" />
+    <button id="createRoomBtn">Criar sala</button>
+  </div>
+
   <div id="login">
     <label>Seu nome: <input id="username" placeholder="ex: Hanna" /></label>
-    <label>Sala: <input id="room" placeholder="ex: geral" /></label>
-    <button id="connect">Entrar na sala</button>
+    <button id="connect" disabled>Entrar na sala</button>
   </div>
 
   <div id="chat" style="display:none;">
     <div id="messages"></div>
     <input id="msgInput" placeholder="Digite sua mensagem…" />
     <button id="sendBtn">Enviar</button>
+    <br/>
+    <input type="file" id="fileInput" />
+    <button id="uploadBtn">Enviar arquivo</button>
+  </div>
+
+  <!-- Modal para visualização -->
+  <div id="modal">
+    <div id="modalContent">
+      <button id="closeModal">X</button>
+      <div id="fileViewer"></div>
+    </div>
   </div>
 
   <script>
-    let ws;
+    const EMOTES = { ':smile:':'😄', ':thumbsup:':'👍', ':heart:':'❤️' };
+    function applyEmotes(text) { return text.replace(/:\w+:/g, c=>EMOTES[c]||c); }
+
+    let selectedRoom = null, ws;
+
+    async function loadRooms(){
+      const resp = await fetch('/rooms/');
+      const rooms = await resp.json();
+      const ul = document.getElementById('roomsUl');
+      ul.innerHTML = '';
+      rooms.forEach(r => {
+        const li = document.createElement('li');
+        li.textContent = r.name + (r.private?' 🔒':'');
+        li.innerHTML += `<span>${r.users} usuário(s)</span>`;
+        li.onclick = () => {
+          selectedRoom = r.name;
+          document.getElementById('connect').disabled = false;
+          alert('Sala selecionada: ' + r.name);
+        };
+        ul.appendChild(li);
+      });
+    }
+
+    document.getElementById('refreshRooms').onclick = loadRooms;
+    document.getElementById('createRoomBtn').onclick = async () => {
+      const name = document.getElementById('newRoomName').value.trim();
+      const pass = document.getElementById('newRoomPassword').value.trim();
+      if(!name) return alert('Digite nome da sala');
+      const res = await fetch('/rooms/', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({name, password:pass})
+      });
+      if(!res.ok) return alert('Erro: '+(await res.json()).detail);
+      await loadRooms();
+    };
+
     document.getElementById('connect').onclick = () => {
       const username = document.getElementById('username').value.trim();
-      const room     = document.getElementById('room').value.trim();
-      if (!username || !room) return alert('Preencha nome e sala.');
+      if (!username || !selectedRoom) return alert('Digite seu nome e selecione sala.');
+      document.getElementById('login').style.display='none';
+      document.getElementById('roomsList').style.display='none';
+      document.getElementById('chat').style.display='block';
 
-      ws = new WebSocket(
-        `ws://127.0.0.1:8000/ws/${encodeURIComponent(room)}?username=${encodeURIComponent(username)}`
-      );
-
-      ws.onopen = () => {
-        document.getElementById('login').style.display = 'none';
-        document.getElementById('chat').style.display  = 'block';
-      };
-
-      ws.onmessage = e => {
-        const msg = JSON.parse(e.data);
-        const el  = document.createElement('div');
-        el.textContent = `[${new Date(msg.timestamp).toLocaleTimeString()}] ${msg.username}: ${msg.message}`;
-        document.getElementById('messages').appendChild(el);
-        document.getElementById('messages').scrollTop = 1e9;
-      };
-
-      ws.onclose = () => alert('Você foi desconectado.');
+      ws = new WebSocket(`ws://${location.host}/ws/${selectedRoom}?username=${encodeURIComponent(username)}`);
+      ws.onmessage = e=> handleMessage(JSON.parse(e.data));
+      ws.onclose  = ()=> alert('Desconectado da sala.');
     };
 
     document.getElementById('sendBtn').onclick = () => {
-      const input = document.getElementById('msgInput');
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(input.value);
-        input.value = '';
-      }
+      const t = applyEmotes(document.getElementById('msgInput').value);
+      ws.send(JSON.stringify({type:'text', message:t}));
+      document.getElementById('msgInput').value='';
     };
+    document.getElementById('uploadBtn').onclick = async () => {
+      const file = document.getElementById('fileInput').files[0];
+      if(!file) return alert('Escolha um arquivo');
+      const fd=new FormData(); fd.append('file',file);
+      const info=await (await fetch('/files/upload',{method:'POST',body:fd})).json();
+      ws.send(JSON.stringify({type:'file', url:info.url, filename:info.filename, content_type:info.content_type}));
+    };
+
+    function handleMessage(msg){
+      if(msg.type==='text') appendText(msg.username,msg.message,msg.timestamp);
+      else if(msg.type==='file') appendFile(msg.username,msg.url,msg.filename,msg.content_type,msg.timestamp);
+    }
+
+    function appendText(user,text,ts){
+      const d=document.createElement('div');d.className='message';
+      d.textContent=`[${new Date(ts).toLocaleTimeString()}] ${user}: ${text}`;
+      document.getElementById('messages').appendChild(d);
+      scrollBottom();
+    }
+    function appendFile(user,url,fn,type,ts){
+      const c=document.createElement('div');c.className='message';
+      let html=`[${new Date(ts).toLocaleTimeString()}] ${user}: `;
+      if(type.startsWith('image/')){
+        html+=`<img class="preview" src="${url}" title="${fn}"/>`;
+      } else {
+        html+=`<span class="file-link" style="color:blue;cursor:pointer;">${fn}</span>`;
+      }
+      c.innerHTML=html;
+      document.getElementById('messages').appendChild(c);
+      scrollBottom();
+      if(type.startsWith('image/')){
+        c.querySelector('img').onclick=()=> openModal(type,url,fn);
+      } else {
+        c.querySelector('span').onclick=()=> openModal(type,url,fn);
+      }
+    }
+    function scrollBottom(){const m=document.getElementById('messages');m.scrollTop=m.scrollHeight;}
+
+    // Modal
+    const modal=document.getElementById('modal'),
+          fv=document.getElementById('fileViewer');
+    document.getElementById('closeModal').onclick = ()=>{
+      fv.innerHTML=''; modal.style.display='none';
+    };
+    function openModal(type,url,fn){
+      let h='';
+      if(type.startsWith('image/')) h=`<img src="${url}"/>`;
+      else if(type.startsWith('audio/')) h=`<audio controls src="${url}"></audio>`;
+      else if(type.startsWith('video/')) h=`<video controls src="${url}"></video>`;
+      else if(type==='application/pdf') h=`<embed src="${url}" type="application/pdf" width="100%" height="600px"/>`;
+      else h=`<a href="${url}" download>${fn}</a>`;
+      fv.innerHTML=h; modal.style.display='flex';
+    }
+
+    // Init
+    loadRooms();
   </script>
 </body>
 </html>
